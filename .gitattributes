@@ -1,0 +1,7 @@
+/tests export-ignore
+/examples export-ignore
+/CHANGELOG.md export-ignore
+/.github export-ignore
+/.gitignore export-ignore
+/php_cs.php.dist export-ignore
+/sonar-project.properties export-ignore

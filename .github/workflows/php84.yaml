@@ -1,0 +1,28 @@
+name: Build PHP 8.4
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Run Tests
+    uses: WebFiori/workflows/.github/workflows/test-php.yaml@v1.2.1
+    with:
+      php-version: '8.4'
+      phpunit-config: "tests/phpunit.xml"
+
+  code-coverage:
+    name: Coverage
+    needs: test
+    uses: WebFiori/workflows/.github/workflows/coverage-codecov.yaml@v1.2.1
+    with:
+      php-version: '8.4'
+      coverage-file: 'php-8.4-coverage.xml'
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
