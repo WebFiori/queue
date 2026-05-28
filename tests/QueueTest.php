@@ -187,6 +187,45 @@ class QueueTest extends TestCase {
         $this->assertEquals(0, $this->queue->process());
     }
 
+    /**
+     * @test
+     */
+    public function testEncryptedPayload() {
+        putenv('QUEUE_KEY=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789');
+        $encDir = sys_get_temp_dir().DIRECTORY_SEPARATOR.'wf_queue_enc_'.getmypid();
+        $queue = new Queue(new FileQueueStorage($encDir));
+
+        $queue->dispatch(new SuccessJob());
+
+        // Verify file content is encrypted (not readable serialized PHP)
+        $files = glob($encDir.DIRECTORY_SEPARATOR.'pending'.DIRECTORY_SEPARATOR.'*.json');
+        $data = json_decode(file_get_contents($files[0]), true);
+        $this->assertStringNotContainsString('SuccessJob', $data['payload']);
+
+        // But processing still works (decrypts transparently)
+        $processed = $queue->process();
+        $this->assertEquals(1, $processed);
+
+        putenv('QUEUE_KEY');
+        $this->removeDir($encDir);
+    }
+    /**
+     * @test
+     */
+    public function testNoKeyMeansNoEncryption() {
+        putenv('QUEUE_KEY');
+        $plainDir = sys_get_temp_dir().DIRECTORY_SEPARATOR.'wf_queue_plain_'.getmypid();
+        $queue = new Queue(new FileQueueStorage($plainDir));
+
+        $queue->dispatch(new SuccessJob());
+
+        $files = glob($plainDir.DIRECTORY_SEPARATOR.'pending'.DIRECTORY_SEPARATOR.'*.json');
+        $data = json_decode(file_get_contents($files[0]), true);
+        $this->assertStringContainsString('SuccessJob', $data['payload']);
+
+        $this->removeDir($plainDir);
+    }
+
     private function removeDir(string $dir): void {
         if (!is_dir($dir)) {
             return;

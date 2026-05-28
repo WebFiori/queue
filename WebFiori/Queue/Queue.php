@@ -36,7 +36,7 @@ class Queue {
      */
     public function dispatch(Job $job, int $priority = 0, int $delaySeconds = 0): string {
         $id = $this->generateId();
-        $payload = serialize($job);
+        $payload = $this->encrypt(serialize($job));
         $availableAt = $delaySeconds > 0 ? time() + $delaySeconds : 0;
         $this->storage->push($id, $payload, $priority, $availableAt);
 
@@ -88,7 +88,7 @@ class Queue {
             $attempts = ($item['attempts'] ?? 0) + 1;
 
             try {
-                $job = unserialize($item['payload']);
+                $job = unserialize($this->decrypt($item['payload']));
 
                 if (!($job instanceof Job)) {
                     $this->storage->markFailed($id, 'Payload is not a valid Job instance.', $attempts);
@@ -121,6 +121,57 @@ class Queue {
      */
     public function retry(string $id): void {
         $this->storage->retry($id);
+    }
+    /**
+     * Decrypts data if it was encrypted.
+     *
+     * @param string $data The potentially encrypted data.
+     *
+     * @return string The plaintext data.
+     */
+    private function decrypt(string $data): string {
+        $key = getenv('QUEUE_KEY');
+
+        if ($key === false || $key === '') {
+            return $data;
+        }
+
+        $raw = base64_decode($data, true);
+
+        if ($raw === false || strlen($raw) < 29) {
+            return $data;
+        }
+
+        $encKey = hash('sha256', $key, true);
+        $iv = substr($raw, 0, 12);
+        $tag = substr($raw, 12, 16);
+        $ciphertext = substr($raw, 28);
+
+        $plaintext = openssl_decrypt($ciphertext, 'aes-256-gcm', $encKey, OPENSSL_RAW_DATA, $iv, $tag);
+
+        return $plaintext !== false ? $plaintext : $data;
+    }
+
+    /**
+     * Encrypts data if QUEUE_KEY environment variable is set.
+     *
+     * @param string $data The plaintext data.
+     *
+     * @return string Encrypted (base64) or plaintext if no key.
+     */
+    private function encrypt(string $data): string {
+        $key = getenv('QUEUE_KEY');
+
+        if ($key === false || $key === '') {
+            return $data;
+        }
+
+        $encKey = hash('sha256', $key, true);
+        $iv = random_bytes(12);
+        $tag = '';
+        $ciphertext = openssl_encrypt($data, 'aes-256-gcm', $encKey, OPENSSL_RAW_DATA, $iv, $tag);
+
+        return base64_encode($iv.$tag.$ciphertext);
     }
 
     private function generateId(): string {

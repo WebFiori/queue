@@ -120,6 +120,7 @@ class FileQueueStorage implements QueueStorage {
             if ($data['available_at'] > time()) {
                 continue;
             }
+
             $jobs[] = $data;
         }
 
@@ -186,7 +187,6 @@ class FileQueueStorage implements QueueStorage {
             file_put_contents($file, json_encode($data), LOCK_EX);
         }
     }
-
     private function ensureDir(string $dir): void {
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
