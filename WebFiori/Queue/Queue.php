@@ -13,6 +13,9 @@ namespace WebFiori\Queue;
 
 /**
  * Core queue class that dispatches and processes jobs.
+ *
+ * Handles serialization, encryption, and retry logic. The storage layer
+ * only deals with QueuedJob value objects containing opaque payloads.
  */
 class Queue {
     private QueueStorage $storage;
@@ -28,6 +31,8 @@ class Queue {
     /**
      * Dispatch a job to the queue.
      *
+     * The job is serialized, optionally encrypted, and stored via the storage backend.
+     *
      * @param Job $job The job to dispatch.
      * @param int $priority Job priority (higher = processed first).
      * @param int $delaySeconds Seconds to wait before the job becomes available.
@@ -38,7 +43,9 @@ class Queue {
         $id = $this->generateId();
         $payload = $this->encrypt(serialize($job));
         $availableAt = $delaySeconds > 0 ? time() + $delaySeconds : 0;
-        $this->storage->push($id, $payload, $priority, $availableAt);
+
+        $queuedJob = new QueuedJob($id, $payload, $priority, 0, $availableAt);
+        $this->storage->push($queuedJob);
 
         return $id;
     }
@@ -51,7 +58,7 @@ class Queue {
     /**
      * Returns all failed jobs.
      *
-     * @return array
+     * @return QueuedJob[]
      */
     public function getFailed(): array {
         return $this->storage->getFailed();
@@ -75,6 +82,9 @@ class Queue {
     /**
      * Process pending jobs from the queue.
      *
+     * Retrieves available jobs from storage, decrypts and deserializes them,
+     * then calls handle(). Failed jobs are retried or moved to the failed queue.
+     *
      * @param int $limit Maximum number of jobs to process in this run.
      *
      * @return int Number of jobs successfully processed.
@@ -83,15 +93,17 @@ class Queue {
         $pending = $this->storage->pop($limit);
         $processed = 0;
 
-        foreach ($pending as $item) {
-            $id = $item['id'];
-            $attempts = ($item['attempts'] ?? 0) + 1;
+        foreach ($pending as $queuedJob) {
+            $id = $queuedJob->getId();
+            $attempts = $queuedJob->getAttempts() + 1;
 
             try {
-                $job = unserialize($this->decrypt($item['payload']));
+                $job = unserialize($this->decrypt($queuedJob->getPayload()));
 
                 if (!($job instanceof Job)) {
-                    $this->storage->markFailed($id, 'Payload is not a valid Job instance.', $attempts);
+                    $queuedJob->setAttempts($attempts);
+                    $queuedJob->setFailReason('Payload is not a valid Job instance.');
+                    $this->storage->markFailed($queuedJob);
 
                     continue;
                 }
@@ -101,13 +113,16 @@ class Queue {
                 $processed++;
             } catch (\Throwable $e) {
                 if ($attempts >= $job->getMaxAttempts()) {
-                    $this->storage->markFailed($id, $e->getMessage(), $attempts);
+                    $queuedJob->setAttempts($attempts);
+                    $queuedJob->setFailReason($e->getMessage());
+                    $this->storage->markFailed($queuedJob);
                 } else {
                     // Re-queue with updated attempt count and delay
                     $this->storage->markComplete($id);
                     $delay = $job->getRetryDelaySeconds() * $attempts;
-                    $this->storage->push($id, $item['payload'], $item['priority'] ?? 0, time() + $delay);
-                    $this->storage->setAttempts($id, $attempts);
+                    $queuedJob->setAttempts($attempts);
+                    $queuedJob->setAvailableAt(time() + $delay);
+                    $this->storage->push($queuedJob);
                 }
             }
         }
@@ -151,7 +166,6 @@ class Queue {
 
         return $plaintext !== false ? $plaintext : $data;
     }
-
     /**
      * Encrypts data if QUEUE_KEY environment variable is set.
      *
