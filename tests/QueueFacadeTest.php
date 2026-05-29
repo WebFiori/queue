@@ -75,7 +75,7 @@ class QueueFacadeTest extends TestCase {
         QueueFacade::process();
 
         $failed = QueueFacade::getFailed();
-        QueueFacade::retry($failed[0]['id']);
+        QueueFacade::retry($failed[0]->getId());
         $this->assertEquals(1, QueueFacade::getPendingCount());
 
         $this->removeDir($dir);

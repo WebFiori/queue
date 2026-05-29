@@ -6,6 +6,7 @@ use PHPUnit\Framework\TestCase;
 use WebFiori\Queue\FileQueueStorage;
 use WebFiori\Queue\Job;
 use WebFiori\Queue\Queue;
+use WebFiori\Queue\QueuedJob;
 use WebFiori\Queue\QueueFacade;
 
 class SuccessJob implements Job {
@@ -120,7 +121,7 @@ class QueueTest extends TestCase {
 
         $failed = $this->queue->getFailed();
         $this->assertCount(1, $failed);
-        $this->assertStringContainsString('Job failed', $failed[0]['reason']);
+        $this->assertStringContainsString('Job failed', $failed[0]->getFailReason());
     }
     /**
      * @test
@@ -133,7 +134,7 @@ class QueueTest extends TestCase {
         $failed = $this->queue->getFailed();
         $this->assertCount(1, $failed);
 
-        $this->queue->retry($failed[0]['id']);
+        $this->queue->retry($failed[0]->getId());
         $this->assertEquals(1, $this->queue->getPendingCount());
         $this->assertCount(0, $this->queue->getFailed());
     }
@@ -160,9 +161,9 @@ class QueueTest extends TestCase {
         $storage = $this->queue->getStorage();
         $jobs = $storage->pop(3);
 
-        $this->assertEquals(10, $jobs[0]['priority']);
-        $this->assertEquals(5, $jobs[1]['priority']);
-        $this->assertEquals(1, $jobs[2]['priority']);
+        $this->assertEquals(10, $jobs[0]->getPriority());
+        $this->assertEquals(5, $jobs[1]->getPriority());
+        $this->assertEquals(1, $jobs[2]->getPriority());
     }
     /**
      * @test

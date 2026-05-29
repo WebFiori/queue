@@ -24,8 +24,8 @@ use WebFiori\Queue\Queue;
  * - getRetryDelaySeconds(): Base delay between retries (multiplied by attempt number)
  */
 class SendEmailJob implements Job {
-    private string $to;
     private string $subject;
+    private string $to;
 
     /**
      * Constructor receives the data needed to perform the job.
@@ -35,16 +35,6 @@ class SendEmailJob implements Job {
     public function __construct(string $to, string $subject) {
         $this->to = $to;
         $this->subject = $subject;
-    }
-
-    /**
-     * This method contains the actual work.
-     * It is called by Queue::process() when the job is picked up.
-     * If this method throws an exception, the job will be retried
-     * up to getMaxAttempts() times.
-     */
-    public function handle(): void {
-        echo "Sending email to {$this->to}: {$this->subject}\n";
     }
 
     /**
@@ -62,6 +52,16 @@ class SendEmailJob implements Job {
      */
     public function getRetryDelaySeconds(): int {
         return 60;
+    }
+
+    /**
+     * This method contains the actual work.
+     * It is called by Queue::process() when the job is picked up.
+     * If this method throws an exception, the job will be retried
+     * up to getMaxAttempts() times.
+     */
+    public function handle(): void {
+        echo "Sending email to {$this->to}: {$this->subject}\n";
     }
 }
 

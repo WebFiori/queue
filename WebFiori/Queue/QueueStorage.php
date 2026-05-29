@@ -13,16 +13,20 @@ namespace WebFiori\Queue;
 
 /**
  * Interface for queue storage backends.
+ *
+ * Implementations persist QueuedJob objects and retrieve them for processing.
+ * The storage layer never interprets the job payload — it treats it as an
+ * opaque string. Serialization and encryption are handled by the Queue class.
  */
 interface QueueStorage {
     /**
-     * Remove all failed jobs.
+     * Remove all failed jobs permanently.
      */
     public function flush(): void;
     /**
      * Returns all failed jobs.
      *
-     * @return array Array of associative arrays with keys: id, payload, reason, attempts.
+     * @return QueuedJob[] Array of failed queued jobs.
      */
     public function getFailed(): array;
     /**
@@ -32,47 +36,44 @@ interface QueueStorage {
      */
     public function getPendingCount(): int;
     /**
-     * Mark a job as completed and remove it from the queue.
+     * Remove a completed job from the pending queue.
+     *
+     * Called after a job's handle() method succeeds.
      *
      * @param string $id The job identifier.
      */
     public function markComplete(string $id): void;
     /**
-     * Mark a job as failed.
+     * Move a job from pending to the failed queue.
      *
-     * @param string $id The job identifier.
-     * @param string $reason The failure reason.
-     * @param int $attempts Number of attempts made.
+     * Called when all retry attempts are exhausted.
+     *
+     * @param QueuedJob $job The failed job with failReason and attempts set.
      */
-    public function markFailed(string $id, string $reason, int $attempts): void;
+    public function markFailed(QueuedJob $job): void;
     /**
-     * Pop the next available jobs from the queue.
+     * Retrieve the next available jobs from the pending queue.
+     *
+     * Must return jobs where:
+     * 1. availableAt <= current time (not delayed)
+     * 2. Sorted by priority descending (highest first)
+     * 3. Limited to $limit count
      *
      * @param int $limit Maximum number of jobs to retrieve.
      *
-     * @return array Array of associative arrays with keys: id, payload, attempts, priority.
+     * @return QueuedJob[] Array of available queued jobs.
      */
     public function pop(int $limit = 10): array;
     /**
-     * Push a job payload onto the queue.
+     * Store a queued job in the pending queue.
      *
-     * @param string $id Unique job identifier.
-     * @param string $payload Serialized job data.
-     * @param int $priority Job priority (higher = processed first).
-     * @param int $availableAt Unix timestamp when the job becomes available.
+     * @param QueuedJob $job The job entry to store.
      */
-    public function push(string $id, string $payload, int $priority = 0, int $availableAt = 0): void;
+    public function push(QueuedJob $job): void;
     /**
-     * Retry a failed job by moving it back to the pending queue.
+     * Move a failed job back to the pending queue for reprocessing.
      *
      * @param string $id The job identifier.
      */
     public function retry(string $id): void;
-    /**
-     * Update the attempt count for a pending job.
-     *
-     * @param string $id The job identifier.
-     * @param int $attempts The new attempt count.
-     */
-    public function setAttempts(string $id, int $attempts): void;
 }

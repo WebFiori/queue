@@ -59,7 +59,15 @@ class FileQueueStorage implements QueueStorage {
             $data = json_decode(file_get_contents($file), true);
 
             if ($data !== null) {
-                $failed[] = $data;
+                $failed[] = new QueuedJob(
+                    $data['id'],
+                    $data['payload'] ?? '',
+                    $data['priority'] ?? 0,
+                    $data['attempts'] ?? 0,
+                    0,
+                    $data['created_at'] ?? 0,
+                    $data['reason'] ?? null
+                );
             }
         }
 
@@ -84,21 +92,23 @@ class FileQueueStorage implements QueueStorage {
     /**
      * {@inheritDoc}
      */
-    public function markFailed(string $id, string $reason, int $attempts): void {
-        $pendingFile = $this->getPendingDir().DIRECTORY_SEPARATOR.$id.'.json';
-        $data = [];
+    public function markFailed(QueuedJob $job): void {
+        $pendingFile = $this->getPendingDir().DIRECTORY_SEPARATOR.$job->getId().'.json';
 
         if (file_exists($pendingFile)) {
-            $data = json_decode(file_get_contents($pendingFile), true) ?? [];
             unlink($pendingFile);
         }
 
-        $data['reason'] = $reason;
-        $data['attempts'] = $attempts;
-        $data['failed_at'] = time();
-
+        $data = [
+            'id' => $job->getId(),
+            'payload' => $job->getPayload(),
+            'priority' => $job->getPriority(),
+            'attempts' => $job->getAttempts(),
+            'reason' => $job->getFailReason(),
+            'failed_at' => time(),
+        ];
         file_put_contents(
-            $this->getFailedDir().DIRECTORY_SEPARATOR.$id.'.json',
+            $this->getFailedDir().DIRECTORY_SEPARATOR.$job->getId().'.json',
             json_encode($data),
             LOCK_EX
         );
@@ -117,20 +127,27 @@ class FileQueueStorage implements QueueStorage {
                 continue;
             }
 
-            if ($data['available_at'] > time()) {
+            $job = new QueuedJob(
+                $data['id'],
+                $data['payload'],
+                $data['priority'] ?? 0,
+                $data['attempts'] ?? 0,
+                $data['available_at'] ?? 0,
+                $data['created_at'] ?? 0
+            );
+
+            if (!$job->isAvailable()) {
                 continue;
             }
-
-            $jobs[] = $data;
+            $jobs[] = $job;
         }
 
-        // Sort by priority descending, then by created_at ascending
-        usort($jobs, function ($a, $b) {
-            if ($a['priority'] !== $b['priority']) {
-                return $b['priority'] - $a['priority'];
+        usort($jobs, function (QueuedJob $a, QueuedJob $b) {
+            if ($a->getPriority() !== $b->getPriority()) {
+                return $b->getPriority() - $a->getPriority();
             }
 
-            return $a['created_at'] - $b['created_at'];
+            return $a->getCreatedAt() - $b->getCreatedAt();
         });
 
         return array_slice($jobs, 0, $limit);
@@ -138,17 +155,17 @@ class FileQueueStorage implements QueueStorage {
     /**
      * {@inheritDoc}
      */
-    public function push(string $id, string $payload, int $priority = 0, int $availableAt = 0): void {
+    public function push(QueuedJob $job): void {
         $data = [
-            'id' => $id,
-            'payload' => $payload,
-            'priority' => $priority,
-            'attempts' => 0,
-            'available_at' => $availableAt > 0 ? $availableAt : time(),
-            'created_at' => time(),
+            'id' => $job->getId(),
+            'payload' => $job->getPayload(),
+            'priority' => $job->getPriority(),
+            'attempts' => $job->getAttempts(),
+            'available_at' => $job->getAvailableAt(),
+            'created_at' => $job->getCreatedAt(),
         ];
         file_put_contents(
-            $this->getPendingDir().DIRECTORY_SEPARATOR.$id.'.json',
+            $this->getPendingDir().DIRECTORY_SEPARATOR.$job->getId().'.json',
             json_encode($data),
             LOCK_EX
         );
@@ -166,27 +183,17 @@ class FileQueueStorage implements QueueStorage {
         $data = json_decode(file_get_contents($failedFile), true);
         unlink($failedFile);
 
-        unset($data['reason'], $data['failed_at']);
-        $data['available_at'] = time();
-
-        file_put_contents(
-            $this->getPendingDir().DIRECTORY_SEPARATOR.$id.'.json',
-            json_encode($data),
-            LOCK_EX
+        $job = new QueuedJob(
+            $data['id'],
+            $data['payload'],
+            $data['priority'] ?? 0,
+            $data['attempts'] ?? 0,
+            time(),
+            $data['created_at'] ?? time()
         );
+        $this->push($job);
     }
-    /**
-     * {@inheritDoc}
-     */
-    public function setAttempts(string $id, int $attempts): void {
-        $file = $this->getPendingDir().DIRECTORY_SEPARATOR.$id.'.json';
 
-        if (file_exists($file)) {
-            $data = json_decode(file_get_contents($file), true);
-            $data['attempts'] = $attempts;
-            file_put_contents($file, json_encode($data), LOCK_EX);
-        }
-    }
     private function ensureDir(string $dir): void {
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
