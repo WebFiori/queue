@@ -43,6 +43,36 @@ class FailingJob implements Job {
     }
 }
 
+
+class AlwaysFailsJob implements Job {
+    public function handle(): void { throw new \RuntimeException('Always fails'); }
+    public function getMaxAttempts(): int { return 2; }
+    public function getRetryDelaySeconds(): int { return 0; }
+}
+
+class CountingJob implements Job {
+    public static int $count = 0;
+    public function handle(): void { self::$count++; }
+    public function getMaxAttempts(): int { return 1; }
+    public function getRetryDelaySeconds(): int { return 0; }
+}
+
+class LowPriorityJob implements Job {
+    public function handle(): void { PriorityLog::$log[] = 'low'; }
+    public function getMaxAttempts(): int { return 1; }
+    public function getRetryDelaySeconds(): int { return 0; }
+}
+
+class HighPriorityJob implements Job {
+    public function handle(): void { PriorityLog::$log[] = 'high'; }
+    public function getMaxAttempts(): int { return 1; }
+    public function getRetryDelaySeconds(): int { return 0; }
+}
+
+class PriorityLog {
+    public static array $log = [];
+}
+
 class QueueTest extends TestCase {
     private string $storageDir;
     private Queue $queue;
@@ -245,5 +275,83 @@ class QueueTest extends TestCase {
             }
         }
         rmdir($dir);
+    }
+    /**
+     * @test
+     */
+    public function testMaxAttemptsExhaustedMovesToFailed() {
+        $this->queue->dispatch(new AlwaysFailsJob());
+        $this->queue->process(); // attempt 1 → re-queued
+        $this->queue->process(); // attempt 2 → failed
+
+        $this->assertEquals(0, $this->queue->getPendingCount());
+        $failed = $this->queue->getFailed();
+        $this->assertCount(1, $failed);
+        $this->assertEquals('Always fails', $failed[0]->getFailReason());
+        $this->assertEquals(2, $failed[0]->getAttempts());
+    }
+    /**
+     * @test
+     */
+    public function testGetPendingCountAccurate() {
+        CountingJob::$count = 0;
+        $this->assertEquals(0, $this->queue->getPendingCount());
+        $this->queue->dispatch(new CountingJob());
+        $this->assertEquals(1, $this->queue->getPendingCount());
+        $this->queue->dispatch(new CountingJob());
+        $this->assertEquals(2, $this->queue->getPendingCount());
+        $this->queue->process();
+        $this->assertEquals(0, $this->queue->getPendingCount());
+        $this->assertEquals(2, CountingJob::$count);
+    }
+    /**
+     * @test
+     */
+    public function testGetFailedPreservesReason() {
+        $this->queue->dispatch(new AlwaysFailsJob());
+        $this->queue->process();
+        $this->queue->process();
+
+        $failed = $this->queue->getFailed();
+        $this->assertCount(1, $failed);
+        $this->assertEquals('Always fails', $failed[0]->getFailReason());
+        $this->assertNotEmpty($failed[0]->getId());
+    }
+    /**
+     * @test
+     */
+    public function testPriorityOrderingHighFirst() {
+        PriorityLog::$log = [];
+        $this->queue->dispatch(new LowPriorityJob(), 1);
+        $this->queue->dispatch(new HighPriorityJob(), 10);
+        $this->queue->process();
+
+        $this->assertEquals(['high', 'low'], PriorityLog::$log);
+    }
+    /**
+     * @test
+     */
+    public function testProcessReturnsCorrectCount() {
+        CountingJob::$count = 0;
+        $this->queue->dispatch(new CountingJob());
+        $this->queue->dispatch(new CountingJob());
+        $this->queue->dispatch(new CountingJob());
+
+        $processed = $this->queue->process();
+        $this->assertEquals(3, $processed);
+    }
+    /**
+     * @test
+     */
+    public function testFlushOnlyRemovesFailed() {
+        CountingJob::$count = 0;
+        $this->queue->dispatch(new CountingJob());
+        $this->queue->dispatch(new AlwaysFailsJob());
+        $this->queue->process();
+        $this->queue->process(); // exhaust retries
+
+        $this->assertCount(1, $this->queue->getFailed());
+        $this->queue->flush();
+        $this->assertCount(0, $this->queue->getFailed());
     }
 }
