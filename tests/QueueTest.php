@@ -354,4 +354,86 @@ class QueueTest extends TestCase {
         $this->queue->flush();
         $this->assertCount(0, $this->queue->getFailed());
     }
+    /**
+     * @test
+     */
+    public function testGetPendingReturnsAllJobs() {
+        $this->queue->dispatch(new SuccessJob());
+        $this->queue->dispatch(new SuccessJob());
+        $this->queue->dispatch(new SuccessJob());
+
+        $pending = $this->queue->getPending();
+        $this->assertCount(3, $pending);
+
+        foreach ($pending as $job) {
+            $this->assertInstanceOf(QueuedJob::class, $job);
+        }
+    }
+    /**
+     * @test
+     */
+    public function testGetPendingIncludesDelayedJobs() {
+        $this->queue->dispatch(new SuccessJob(), 0, 0);
+        $this->queue->dispatch(new SuccessJob(), 0, 3600); // delayed 1 hour
+
+        $pending = $this->queue->getPending();
+        $this->assertCount(2, $pending);
+    }
+    /**
+     * @test
+     */
+    public function testGetPendingReturnsEmptyWhenNoJobs() {
+        $pending = $this->queue->getPending();
+        $this->assertCount(0, $pending);
+        $this->assertSame([], $pending);
+    }
+    /**
+     * @test
+     */
+    public function testGetPendingDoesNotRemoveJobs() {
+        $this->queue->dispatch(new SuccessJob());
+        $this->queue->dispatch(new SuccessJob());
+
+        $this->queue->getPending();
+        $this->assertEquals(2, $this->queue->getPendingCount());
+
+        // Call again — still 2
+        $this->queue->getPending();
+        $this->assertEquals(2, $this->queue->getPendingCount());
+    }
+    /**
+     * @test
+     */
+    public function testGetPendingSortedByPriority() {
+        $this->queue->dispatch(new LowPriorityJob(), 1);
+        $this->queue->dispatch(new HighPriorityJob(), 10);
+        $this->queue->dispatch(new CountingJob(), 5);
+
+        $pending = $this->queue->getPending();
+        $this->assertCount(3, $pending);
+        $this->assertEquals(10, $pending[0]->getPriority());
+        $this->assertEquals(5, $pending[1]->getPriority());
+        $this->assertEquals(1, $pending[2]->getPriority());
+    }
+    /**
+     * @test
+     */
+    public function testGetPendingThrowsOnNonListableStorage() {
+        $mockStorage = new class implements \WebFiori\Queue\QueueStorage {
+            public function flush(): void {}
+            public function getFailed(): array { return []; }
+            public function getPendingCount(): int { return 0; }
+            public function markComplete(string $id): void {}
+            public function markFailed(QueuedJob $job): void {}
+            public function pop(int $limit = 10): array { return []; }
+            public function push(QueuedJob $job): void {}
+            public function retry(string $id): void {}
+        };
+
+        $queue = new Queue($mockStorage);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('does not support listing pending jobs');
+        $queue->getPending();
+    }
 }

@@ -89,6 +89,29 @@ class QueueFacadeTest extends TestCase {
         $second = QueueFacade::getInstance();
         $this->assertNotSame($first, $second);
     }
+    /**
+     * @test
+     */
+    public function testFacadeGetPending() {
+        QueueFacade::reset();
+        $storageDir = sys_get_temp_dir().DIRECTORY_SEPARATOR.'wf_facade_getpending_test';
+        $queue = new \WebFiori\Queue\Queue(new \WebFiori\Queue\FileQueueStorage($storageDir));
+        QueueFacade::setInstance($queue);
+
+        QueueFacade::dispatch(new \WebFiori\Queue\Tests\SuccessJob());
+        QueueFacade::dispatch(new \WebFiori\Queue\Tests\SuccessJob());
+
+        $pending = QueueFacade::getPending();
+        $this->assertCount(2, $pending);
+
+        foreach ($pending as $job) {
+            $this->assertInstanceOf(\WebFiori\Queue\QueuedJob::class, $job);
+        }
+
+        // Cleanup
+        QueueFacade::reset();
+        $this->removeDir($storageDir);
+    }
 
     private function removeDir(string $dir): void {
         if (!is_dir($dir)) {
