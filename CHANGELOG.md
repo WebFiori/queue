@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0](https://github.com/WebFiori/queue/compare/v1.0.0...v1.1.0) (2026-08-02)
+
+
+### Features
+
+* **storage:** add ListableQueueStorage interface and getPending() ([f85698e](https://github.com/WebFiori/queue/commit/f85698e6a9eac684d2ef8df7b51c6047cf90df26))
+* **storage:** add ListableQueueStorage interface and getPending() method ([81b4330](https://github.com/WebFiori/queue/commit/81b4330f137329f21f20293d994cd29d67fe433f)), closes [#7](https://github.com/WebFiori/queue/issues/7)
+
+
+### Miscellaneous Chores
+
+* align CI with ecosystem baseline ([21cfcf0](https://github.com/WebFiori/queue/commit/21cfcf0d05f130bb173a15131bc8dc19aa1fbf48))
+* align CI with ecosystem baseline ([5624d53](https://github.com/WebFiori/queue/commit/5624d5366930527f38aa4071ce2ab75e2cdf41ef))
+* normalize line endings to LF ([a7968af](https://github.com/WebFiori/queue/commit/a7968afd0b2cb6c44501872b12be286584e0cd34))
+
 ## 1.0.0 (2026-05-29)
 
 
