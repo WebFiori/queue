@@ -57,6 +57,20 @@ class QueueFacade {
         return self::getInstance()->getPendingCount();
     }
     /**
+     * Returns all pending jobs, including delayed ones not yet available.
+     *
+     * Requires the queue's storage backend to implement ListableQueueStorage.
+     *
+     * @return QueuedJob[] Array of all pending queued jobs.
+     *
+     * @throws \LogicException If the storage backend does not support listing.
+     *
+     * @see Queue::getPending()
+     */
+    public static function getPending(): array {
+        return self::getInstance()->getPending();
+    }
+    /**
      * @see Queue::process()
      */
     public static function process(int $limit = 10): int {

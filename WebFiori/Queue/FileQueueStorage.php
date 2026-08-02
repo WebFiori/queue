@@ -17,7 +17,7 @@ namespace WebFiori\Queue;
  * Stores each job as a JSON file. Pending jobs are in the 'pending' subdirectory,
  * failed jobs in the 'failed' subdirectory.
  */
-class FileQueueStorage implements QueueStorage {
+class FileQueueStorage implements ListableQueueStorage {
     private string $baseDir;
 
     /**
@@ -31,7 +31,7 @@ class FileQueueStorage implements QueueStorage {
         $this->ensureDir($this->getFailedDir());
     }
     /**
-     * {@inheritDoc}
+     * @see QueueStorage
      */
     public function flush(): void {
         $files = glob($this->getFailedDir().DIRECTORY_SEPARATOR.'*.json');
@@ -49,7 +49,7 @@ class FileQueueStorage implements QueueStorage {
         return $this->baseDir;
     }
     /**
-     * {@inheritDoc}
+     * @see QueueStorage
      */
     public function getFailed(): array {
         $files = glob($this->getFailedDir().DIRECTORY_SEPARATOR.'*.json');
@@ -74,13 +74,52 @@ class FileQueueStorage implements QueueStorage {
         return $failed;
     }
     /**
-     * {@inheritDoc}
+     * @see QueueStorage
      */
     public function getPendingCount(): int {
         return count(glob($this->getPendingDir().DIRECTORY_SEPARATOR.'*.json'));
     }
     /**
-     * {@inheritDoc}
+     * Returns all pending jobs, including those not yet available due to delay.
+     *
+     * Jobs are sorted by priority descending, then createdAt ascending.
+     * This method does not remove jobs from the queue.
+     *
+     * @return QueuedJob[] Array of all pending queued jobs.
+     */
+    public function getPending(): array {
+        $files = glob($this->getPendingDir().DIRECTORY_SEPARATOR.'*.json');
+        $jobs = [];
+
+        foreach ($files as $file) {
+            $data = json_decode(file_get_contents($file), true);
+
+            if ($data === null) {
+                continue;
+            }
+
+            $jobs[] = new QueuedJob(
+                $data['id'],
+                $data['payload'] ?? '',
+                $data['priority'] ?? 0,
+                $data['attempts'] ?? 0,
+                $data['available_at'] ?? 0,
+                $data['created_at'] ?? 0
+            );
+        }
+
+        usort($jobs, function (QueuedJob $a, QueuedJob $b) {
+            if ($a->getPriority() !== $b->getPriority()) {
+                return $b->getPriority() - $a->getPriority();
+            }
+
+            return $a->getCreatedAt() - $b->getCreatedAt();
+        });
+
+        return $jobs;
+    }
+    /**
+     * @see QueueStorage
      */
     public function markComplete(string $id): void {
         $file = $this->getPendingDir().DIRECTORY_SEPARATOR.$id.'.json';
@@ -90,7 +129,7 @@ class FileQueueStorage implements QueueStorage {
         }
     }
     /**
-     * {@inheritDoc}
+     * @see QueueStorage
      */
     public function markFailed(QueuedJob $job): void {
         $pendingFile = $this->getPendingDir().DIRECTORY_SEPARATOR.$job->getId().'.json';
@@ -114,7 +153,7 @@ class FileQueueStorage implements QueueStorage {
         );
     }
     /**
-     * {@inheritDoc}
+     * @see QueueStorage
      */
     public function pop(int $limit = 10): array {
         $files = glob($this->getPendingDir().DIRECTORY_SEPARATOR.'*.json');
@@ -153,7 +192,7 @@ class FileQueueStorage implements QueueStorage {
         return array_slice($jobs, 0, $limit);
     }
     /**
-     * {@inheritDoc}
+     * @see QueueStorage
      */
     public function push(QueuedJob $job): void {
         $data = [
@@ -171,7 +210,7 @@ class FileQueueStorage implements QueueStorage {
         );
     }
     /**
-     * {@inheritDoc}
+     * @see QueueStorage
      */
     public function retry(string $id): void {
         $failedFile = $this->getFailedDir().DIRECTORY_SEPARATOR.$id.'.json';

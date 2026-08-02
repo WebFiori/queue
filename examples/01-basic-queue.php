@@ -86,7 +86,25 @@ $queue->dispatch(new SendEmailJob('support@example.com', 'Ticket update'), 0, 0)
 
 echo "Pending jobs: ".$queue->getPendingCount()."\n\n";
 
-// --- Step 3: Process pending jobs ---
+// --- Step 3: Inspect pending jobs ---
+// getPending() returns all pending jobs including delayed ones.
+// It does NOT remove them from the queue — it's read-only.
+// Jobs are sorted by priority (highest first), then creation time.
+echo "--- Pending Jobs ---\n";
+$pending = $queue->getPending();
+
+foreach ($pending as $job) {
+    echo sprintf(
+        "  [%s] priority=%d, available=%s\n",
+        substr($job->getId(), 0, 8).'...',
+        $job->getPriority(),
+        $job->isAvailable() ? 'now' : date('H:i:s', $job->getAvailableAt())
+    );
+}
+
+echo "\n";
+
+// --- Step 4: Process pending jobs ---
 // process() picks up available jobs (sorted by priority), deserializes them,
 // and calls handle() on each one.
 // The $limit parameter controls how many jobs to process in one call.

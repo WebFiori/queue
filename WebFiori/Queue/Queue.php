@@ -72,6 +72,26 @@ class Queue {
         return $this->storage->getPendingCount();
     }
     /**
+     * Returns all pending jobs, including delayed ones not yet available.
+     *
+     * This method requires a storage backend that implements ListableQueueStorage.
+     * If the backend does not support listing, a LogicException is thrown.
+     *
+     * @return QueuedJob[] Array of all pending queued jobs.
+     *
+     * @throws \LogicException If the storage backend does not implement ListableQueueStorage.
+     */
+    public function getPending(): array {
+        if (!($this->storage instanceof ListableQueueStorage)) {
+            throw new \LogicException(
+                'The configured storage backend does not support listing pending jobs. '
+                . 'Use a ListableQueueStorage implementation (e.g. FileQueueStorage).'
+            );
+        }
+
+        return $this->storage->getPending();
+    }
+    /**
      * Returns the storage backend.
      *
      * @return QueueStorage

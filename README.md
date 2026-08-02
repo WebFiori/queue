@@ -114,6 +114,28 @@ $queue->retry($failed[0]['id']);
 $queue->flush();
 ```
 
+### Inspecting Pending Jobs
+
+```php
+// List all pending jobs (including delayed ones not yet available)
+$pending = $queue->getPending();
+
+foreach ($pending as $queuedJob) {
+    echo sprintf(
+        "ID: %s | Priority: %d | Attempts: %d | Available: %s\n",
+        $queuedJob->getId(),
+        $queuedJob->getPriority(),
+        $queuedJob->getAttempts(),
+        date('Y-m-d H:i:s', $queuedJob->getAvailableAt())
+    );
+}
+
+// Quick count (works with any storage backend)
+$count = $queue->getPendingCount();
+```
+
+> **Note:** `getPending()` requires a storage backend that implements `ListableQueueStorage` (e.g. `FileQueueStorage`). Backends like SQS that don't support listing will throw a `LogicException`.
+
 ## API
 
 ### `Job` (interface)
@@ -133,6 +155,7 @@ $queue->flush();
 | `process(int $limit = 10): int` | Process pending jobs, returns count processed |
 | `retry(string $id): void` | Retry a failed job |
 | `getPendingCount(): int` | Number of pending jobs |
+| `getPending(): array` | All pending jobs (requires `ListableQueueStorage`) |
 | `getFailed(): array` | All failed jobs |
 | `flush(): void` | Remove all failed jobs |
 | `getStorage(): QueueStorage` | Get the storage backend |
@@ -150,6 +173,14 @@ $queue->flush();
 | `getPendingCount(): int` | Count pending jobs |
 | `getFailed(): array` | Get all failed jobs |
 | `flush(): void` | Clear failed jobs |
+
+### `ListableQueueStorage` (interface, extends `QueueStorage`)
+
+| Method | Description |
+|--------|-------------|
+| `getPending(): array` | Returns all pending jobs (including delayed), sorted by priority desc |
+
+Backends that support listing (files, database, Redis) implement `ListableQueueStorage`. Backends that only support push/pop semantics (SQS, RabbitMQ) implement the base `QueueStorage`.
 
 ### `QueueFacade`
 
