@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/WebFiori/queue/compare/v1.1.0...v1.2.0) (2026-09-20)
+
+
+### Features
+
+* **queue:** add opt-in error callback and standardize README ([0374739](https://github.com/WebFiori/queue/commit/03747396284db1e6f40b5da7c2f0161a538d5923))
+* **queue:** add opt-in error callback and standardize README ([9a203ca](https://github.com/WebFiori/queue/commit/9a203ca79b6ca69eff6ab79cf0b6e987c703987e))
+
 ## [1.1.0](https://github.com/WebFiori/queue/compare/v1.0.0...v1.1.0) (2026-08-02)
 
 
