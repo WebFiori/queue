@@ -287,7 +287,8 @@ class QueueTest extends TestCase {
         $this->assertEquals(0, $this->queue->getPendingCount());
         $failed = $this->queue->getFailed();
         $this->assertCount(1, $failed);
-        $this->assertEquals('Always fails', $failed[0]->getFailReason());
+        $this->assertStringContainsString('RuntimeException', $failed[0]->getFailReason());
+        $this->assertStringContainsString('Always fails', $failed[0]->getFailReason());
         $this->assertEquals(2, $failed[0]->getAttempts());
     }
     /**
@@ -314,7 +315,7 @@ class QueueTest extends TestCase {
 
         $failed = $this->queue->getFailed();
         $this->assertCount(1, $failed);
-        $this->assertEquals('Always fails', $failed[0]->getFailReason());
+        $this->assertStringContainsString('Always fails', $failed[0]->getFailReason());
         $this->assertNotEmpty($failed[0]->getId());
     }
     /**
@@ -435,5 +436,93 @@ class QueueTest extends TestCase {
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('does not support listing pending jobs');
         $queue->getPending();
+    }
+
+    /**
+     * @test
+     * The onError callback fires on a terminal failure with willRetry = false.
+     */
+    public function testOnErrorInvokedOnTerminalFailure() {
+        $calls = [];
+        $this->queue->setOnError(function ($job, $e, $attempts, $willRetry) use (&$calls) {
+            $calls[] = [$job, $e, $attempts, $willRetry];
+        });
+
+        $this->queue->dispatch(new AlwaysFailsJob()); // maxAttempts = 2
+        $this->queue->process(); // attempt 1 -> retry
+        $this->queue->process(); // attempt 2 -> terminal
+
+        $this->assertCount(2, $calls);
+
+        // First call: intermediate retry.
+        $this->assertInstanceOf(AlwaysFailsJob::class, $calls[0][0]);
+        $this->assertInstanceOf(\RuntimeException::class, $calls[0][1]);
+        $this->assertSame(1, $calls[0][2]);
+        $this->assertTrue($calls[0][3]);
+
+        // Second call: terminal.
+        $this->assertSame(2, $calls[1][2]);
+        $this->assertFalse($calls[1][3]);
+        $this->assertSame('Always fails', $calls[1][1]->getMessage());
+    }
+
+    /**
+     * @test
+     * With no callback configured, processing behaves exactly as before.
+     */
+    public function testNoOnErrorCallbackKeepsDefaultBehavior() {
+        $this->queue->dispatch(new AlwaysFailsJob());
+        $this->queue->process();
+        $this->queue->process();
+
+        $this->assertEquals(0, $this->queue->getPendingCount());
+        $this->assertCount(1, $this->queue->getFailed());
+    }
+
+    /**
+     * @test
+     * A non-Job payload is reported to the callback as a terminal failure
+     * with a null job.
+     */
+    public function testOnErrorInvokedForInvalidPayload() {
+        $captured = null;
+        $this->queue->setOnError(function ($job, $e, $attempts, $willRetry) use (&$captured) {
+            $captured = [$job, $willRetry];
+        });
+
+        // Push a payload that is not a serialized Job.
+        $this->queue->getStorage()->push(new QueuedJob('bad-id', serialize('not a job'), 0, 0, 0));
+        $this->queue->process();
+
+        $this->assertNotNull($captured);
+        $this->assertNull($captured[0]);
+        $this->assertFalse($captured[1]);
+        $this->assertCount(1, $this->queue->getFailed());
+    }
+
+    /**
+     * @test
+     * setOnError is chainable and exposed via getOnError.
+     */
+    public function testSetOnErrorChainableAndGettable() {
+        $cb = function () {
+        };
+        $this->assertSame($this->queue, $this->queue->setOnError($cb));
+        $this->assertSame($cb, $this->queue->getOnError());
+        $this->queue->setOnError(null);
+        $this->assertNull($this->queue->getOnError());
+    }
+
+    /**
+     * @test
+     * The facade exposes setOnError, delegating to the default instance.
+     */
+    public function testFacadeSetOnErrorPassthrough() {
+        QueueFacade::reset();
+        $cb = function () {
+        };
+        QueueFacade::setOnError($cb);
+        $this->assertSame($cb, QueueFacade::getInstance()->getOnError());
+        QueueFacade::reset();
     }
 }

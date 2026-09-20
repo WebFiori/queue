@@ -51,12 +51,6 @@ class QueueFacade {
         return self::$inst;
     }
     /**
-     * @see Queue::getPendingCount()
-     */
-    public static function getPendingCount(): int {
-        return self::getInstance()->getPendingCount();
-    }
-    /**
      * Returns all pending jobs, including delayed ones not yet available.
      *
      * Requires the queue's storage backend to implement ListableQueueStorage.
@@ -69,6 +63,12 @@ class QueueFacade {
      */
     public static function getPending(): array {
         return self::getInstance()->getPending();
+    }
+    /**
+     * @see Queue::getPendingCount()
+     */
+    public static function getPendingCount(): int {
+        return self::getInstance()->getPendingCount();
     }
     /**
      * @see Queue::process()
@@ -95,5 +95,11 @@ class QueueFacade {
      */
     public static function setInstance(Queue $queue): void {
         self::$inst = $queue;
+    }
+    /**
+     * @see Queue::setOnError()
+     */
+    public static function setOnError(?callable $callback): void {
+        self::getInstance()->setOnError($callback);
     }
 }
