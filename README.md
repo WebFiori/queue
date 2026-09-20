@@ -18,6 +18,20 @@ A lightweight job queue library for PHP with file-based storage, priority orderi
   </a>
 </p>
 
+## Table of Contents
+
+- [Supported PHP Versions](#supported-php-versions)
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [API](#api)
+- [Testing](#testing)
+- [Examples](#examples)
+- [Contributing](#contributing)
+- [License](#license)
+- [Support](#support)
+- [Changelog](#changelog)
+
 ## Supported PHP Versions
 
 This library requires **PHP 8.1 or higher**.
@@ -104,15 +118,41 @@ QueueFacade::process();
 ### Failed Jobs
 
 ```php
-// View failed jobs
+// View failed jobs (each is a QueuedJob)
 $failed = $queue->getFailed();
 
 // Retry a specific failed job
-$queue->retry($failed[0]['id']);
+$queue->retry($failed[0]->getId());
 
 // Clear all failed jobs
 $queue->flush();
 ```
+
+### Observing Failures
+
+By default, exceptions thrown by a job's `handle()` are caught and turned into
+retries or a failed-job record. Register an **opt-in error callback** to observe
+every caught throwable — with full exception context — for both intermediate
+retries and terminal failures. This makes it easy to bridge queue failures into
+a centralized logger (e.g. a globally registered `WebFiori\Error\Handler`).
+
+```php
+$queue->setOnError(function (?Job $job, \Throwable $e, int $attempts, bool $willRetry): void {
+    // $job is null if the stored payload was not a valid Job instance.
+    error_log(sprintf(
+        '[queue] %s failed on attempt %d (%s): %s',
+        $job !== null ? get_class($job) : 'invalid-payload',
+        $attempts,
+        $willRetry ? 'will retry' : 'terminal',
+        $e->getMessage()
+    ));
+});
+```
+
+The failed `QueuedJob` also records richer context — its `getFailReason()` now
+includes the exception class in addition to the message. Behavior is unchanged
+when no callback is registered. The same callback can be set on the facade via
+`QueueFacade::setOnError(...)`.
 
 ### Inspecting Pending Jobs
 
@@ -159,6 +199,8 @@ $count = $queue->getPendingCount();
 | `getFailed(): array` | All failed jobs |
 | `flush(): void` | Remove all failed jobs |
 | `getStorage(): QueueStorage` | Get the storage backend |
+| `setOnError(?callable $cb): Queue` | Register a callback invoked on every caught throwable: `fn(?Job $job, \Throwable $e, int $attempts, bool $willRetry)` |
+| `getOnError(): ?callable` | Get the registered error callback |
 
 ### `QueueStorage` (interface)
 
@@ -186,6 +228,35 @@ Backends that support listing (files, database, Redis) implement `ListableQueueS
 
 Static wrapper. Same methods as `Queue` plus `getInstance()`, `setInstance()`, `reset()`.
 
+## Testing
+
+Run the test suite with:
+
+```bash
+composer test
+```
+
+## Examples
+
+Runnable examples are available in the [`examples/`](examples) directory:
+
+- [`examples/01-basic-queue.php`](examples/01-basic-queue.php) — dispatching and processing jobs
+- [`examples/02-custom-storage.php`](examples/02-custom-storage.php) — implementing a custom storage backend
+
+## Contributing
+
+Contributions are welcome. Please open an issue to discuss significant changes,
+follow [Conventional Commits](https://www.conventionalcommits.org/) for commit
+messages, and ensure `composer test` passes before opening a pull request.
+
 ## License
 
 MIT
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/WebFiori/queue/issues)
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a full history of changes and releases.

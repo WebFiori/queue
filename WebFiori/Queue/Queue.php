@@ -11,6 +11,10 @@
  */
 namespace WebFiori\Queue;
 
+use LogicException;
+use Throwable;
+use UnexpectedValueException;
+
 /**
  * Core queue class that dispatches and processes jobs.
  *
@@ -18,6 +22,14 @@ namespace WebFiori\Queue;
  * only deals with QueuedJob value objects containing opaque payloads.
  */
 class Queue {
+    /**
+     * Optional callback invoked for every throwable caught while processing a job.
+     *
+     * Signature: fn(?Job $job, Throwable $e, int $attempts, bool $willRetry): void
+     *
+     * @var callable|null
+     */
+    private $onError = null;
     private QueueStorage $storage;
 
     /**
@@ -64,12 +76,12 @@ class Queue {
         return $this->storage->getFailed();
     }
     /**
-     * Returns the number of pending jobs.
+     * Returns the configured error callback, if any.
      *
-     * @return int
+     * @return callable|null
      */
-    public function getPendingCount(): int {
-        return $this->storage->getPendingCount();
+    public function getOnError(): ?callable {
+        return $this->onError;
     }
     /**
      * Returns all pending jobs, including delayed ones not yet available.
@@ -79,17 +91,25 @@ class Queue {
      *
      * @return QueuedJob[] Array of all pending queued jobs.
      *
-     * @throws \LogicException If the storage backend does not implement ListableQueueStorage.
+     * @throws LogicException If the storage backend does not implement ListableQueueStorage.
      */
     public function getPending(): array {
         if (!($this->storage instanceof ListableQueueStorage)) {
-            throw new \LogicException(
+            throw new LogicException(
                 'The configured storage backend does not support listing pending jobs. '
-                . 'Use a ListableQueueStorage implementation (e.g. FileQueueStorage).'
+                .'Use a ListableQueueStorage implementation (e.g. FileQueueStorage).'
             );
         }
 
         return $this->storage->getPending();
+    }
+    /**
+     * Returns the number of pending jobs.
+     *
+     * @return int
+     */
+    public function getPendingCount(): int {
+        return $this->storage->getPendingCount();
     }
     /**
      * Returns the storage backend.
@@ -116,25 +136,28 @@ class Queue {
         foreach ($pending as $queuedJob) {
             $id = $queuedJob->getId();
             $attempts = $queuedJob->getAttempts() + 1;
+            $job = null;
 
             try {
                 $job = unserialize($this->decrypt($queuedJob->getPayload()));
 
                 if (!($job instanceof Job)) {
-                    $queuedJob->setAttempts($attempts);
-                    $queuedJob->setFailReason('Payload is not a valid Job instance.');
-                    $this->storage->markFailed($queuedJob);
+                    $job = null;
 
-                    continue;
+                    throw new UnexpectedValueException('Payload is not a valid Job instance.');
                 }
 
                 $job->handle();
                 $this->storage->markComplete($id);
                 $processed++;
-            } catch (\Throwable $e) {
-                if ($attempts >= $job->getMaxAttempts()) {
+            } catch (Throwable $e) {
+                // A non-Job payload cannot be retried; treat it as terminal.
+                $maxAttempts = $job !== null ? $job->getMaxAttempts() : 1;
+                $willRetry = $attempts < $maxAttempts;
+
+                if (!$willRetry) {
                     $queuedJob->setAttempts($attempts);
-                    $queuedJob->setFailReason($e->getMessage());
+                    $queuedJob->setFailReason(get_class($e).': '.$e->getMessage());
                     $this->storage->markFailed($queuedJob);
                 } else {
                     // Re-queue with updated attempt count and delay
@@ -144,6 +167,8 @@ class Queue {
                     $queuedJob->setAvailableAt(time() + $delay);
                     $this->storage->push($queuedJob);
                 }
+
+                $this->invokeOnError($job, $e, $attempts, $willRetry);
             }
         }
 
@@ -156,6 +181,27 @@ class Queue {
      */
     public function retry(string $id): void {
         $this->storage->retry($id);
+    }
+    /**
+     * Sets an optional callback invoked whenever a throwable is caught while
+     * processing a job.
+     *
+     * The callback lets applications observe, log, or react to job failures
+     * (e.g. bridge them into a globally registered error handler) with full
+     * exception context. It is invoked for both terminal failures (attempts
+     * exhausted) and intermediate failures that will be retried.
+     *
+     * Signature: fn(?Job $job, Throwable $e, int $attempts, bool $willRetry): void
+     * ($job is null when the stored payload is not a valid Job instance.)
+     *
+     * @param callable|null $callback The error callback, or null to disable.
+     *
+     * @return Queue This instance, for chaining.
+     */
+    public function setOnError(?callable $callback): Queue {
+        $this->onError = $callback;
+
+        return $this;
     }
     /**
      * Decrypts data if it was encrypted.
@@ -210,5 +256,18 @@ class Queue {
 
     private function generateId(): string {
         return bin2hex(random_bytes(16));
+    }
+    /**
+     * Invokes the error callback if one is configured.
+     *
+     * @param Job|null $job The job that failed, or null for an invalid payload.
+     * @param Throwable $e The caught throwable.
+     * @param int $attempts The attempt count at the time of failure.
+     * @param bool $willRetry Whether the job will be retried.
+     */
+    private function invokeOnError(?Job $job, Throwable $e, int $attempts, bool $willRetry): void {
+        if ($this->onError !== null) {
+            ($this->onError)($job, $e, $attempts, $willRetry);
+        }
     }
 }
